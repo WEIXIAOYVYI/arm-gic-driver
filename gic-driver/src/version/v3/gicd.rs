@@ -184,7 +184,8 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.ICENABLER.len());
 
         for i in 0..num_regs {
-            self.ICENABLER[i].set(u32::MAX);
+            let idx = core::hint::black_box(i);
+            self.ICENABLER[idx].set(u32::MAX);
         }
     }
 
@@ -242,7 +243,8 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.ICPENDR.len());
 
         for i in 0..num_regs {
-            self.ICPENDR[i].set(u32::MAX);
+            let idx = core::hint::black_box(i);
+            self.ICPENDR[idx].set(u32::MAX);
         }
     }
 
@@ -252,7 +254,8 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.ICACTIVER.len());
 
         for i in 0..num_regs {
-            self.ICACTIVER[i].set(u32::MAX);
+            let idx = core::hint::black_box(i);
+            self.ICACTIVER[idx].set(u32::MAX);
         }
     }
 
@@ -278,8 +281,9 @@ impl DistributorReg {
 
         // Set default priority (0xA0 - middle priority) for all interrupts
         for i in 32..num_priorities {
+            let idx = core::hint::black_box(i);
             // Skip SGIs and PPIs
-            self.IPRIORITYR[i as usize].set(0xA0);
+            self.IPRIORITYR[idx as usize].set(0xA0);
         }
     }
 
@@ -289,7 +293,8 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.IGROUPR.len());
 
         for i in 0..num_regs {
-            self.IGROUPR[i].set(u32::MAX);
+            let idx = core::hint::black_box(i);
+            self.IGROUPR[idx].set(u32::MAX);
         }
     }
 
@@ -349,7 +354,8 @@ impl DistributorReg {
 
         // Configure all interrupts as level-sensitive (0x0) by default
         for i in 0..num_regs {
-            self.ICFGR[i].set(0);
+            let idx = core::hint::black_box(i);
+            self.ICFGR[idx].set(0);
         }
     }
 
@@ -510,8 +516,9 @@ impl DistributorReg {
     fn set_all_routing_to_current(&self, max_interrupts: u32) {
         let current = Affinity::current();
         for i in SPI_RANGE.start..max_interrupts {
+            let idx = core::hint::black_box(i);
             // Set all SPIs to route to current CPU
-            self.set_interrupt_route(i, Some(current));
+            self.set_interrupt_route(idx, Some(current));
         }
     }
 
