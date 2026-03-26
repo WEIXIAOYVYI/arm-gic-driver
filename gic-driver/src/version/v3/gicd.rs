@@ -90,7 +90,6 @@ register_structs! {
 }
 
 impl DistributorReg {
-
     #[inline(never)]
     unsafe fn write32(&self, offset: usize, val: u32) {
         let base = self as *const _ as *mut u8;
