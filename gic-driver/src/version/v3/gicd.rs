@@ -90,6 +90,65 @@ register_structs! {
 }
 
 impl DistributorReg {
+
+    #[inline(always)]
+    unsafe fn write32(&self, offset: usize, val: u32) {
+        core::ptr::write_volatile(
+            self.base.add(offset).cast::<u32>(),
+            val,
+        );
+    }
+
+    #[inline(always)]
+    unsafe fn write8(&self, offset: usize, val: u8) {
+        core::ptr::write_volatile(
+            self.base.add(offset).cast::<u8>(),
+            val as u8,
+        );
+    }
+
+    #[inline(always)]
+    fn write_icpendr(&self, n: usize, val: u32) {
+        unsafe {
+            self.write32(0x280 + n * 4, val);
+        }
+    }
+
+    #[inline(always)]
+    fn write_icactiver(&self, n: usize, val: u32) {
+        unsafe {
+            self.write32(0x380 + n * 4, val);
+        }
+    }
+
+    #[inline(always)]
+    fn write_igroupr(&self, n: usize, val: u32) {
+        unsafe {
+            self.write32(0x80 + n * 4, val);
+        }
+    }
+
+    #[inline(always)]
+    fn write_isenabler(&self, n: usize, val: u32) {
+        unsafe {
+            self.write32(0x100 + n * 4, val);
+        }
+    }
+
+    #[inline(always)]
+    fn write_icenabler(&self, n: usize, val: u32) {
+        unsafe {
+            self.write32(0x180 + n * 4, val);
+        }
+    }
+
+    #[inline(always)]
+    fn write_ipriorityr(&self, n: usize, val: u8) {
+        unsafe {
+            self.write8(0x400 + n, val);
+        }
+    }
+
     pub fn get_security_state(&self) -> SecurityState {
         if self.is_single_security_state() || !self.has_security_extensions() {
             SecurityState::Single
@@ -184,8 +243,7 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.ICENABLER.len());
 
         for i in 0..num_regs {
-            let idx = core::hint::black_box(i);
-            self.ICENABLER[idx].set(u32::MAX);
+            self.write_icenabler(i, u32::MAX);
         }
     }
 
@@ -243,8 +301,7 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.ICPENDR.len());
 
         for i in 0..num_regs {
-            let idx = core::hint::black_box(i);
-            self.ICPENDR[idx].set(u32::MAX);
+            self.write_icpendr(i, u32::MAX);
         }
     }
 
@@ -254,8 +311,7 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.ICACTIVER.len());
 
         for i in 0..num_regs {
-            let idx = core::hint::black_box(i);
-            self.ICACTIVER[idx].set(u32::MAX);
+            self.write_icactiver(i, u32::MAX);
         }
     }
 
@@ -281,9 +337,7 @@ impl DistributorReg {
 
         // Set default priority (0xA0 - middle priority) for all interrupts
         for i in 32..num_priorities {
-            let idx = core::hint::black_box(i);
-            // Skip SGIs and PPIs
-            self.IPRIORITYR[idx as usize].set(0xA0);
+            self.write_ipriorityr(i as usize, 0xA0);
         }
     }
 
@@ -293,8 +347,7 @@ impl DistributorReg {
         let num_regs = num_regs.min(self.IGROUPR.len());
 
         for i in 0..num_regs {
-            let idx = core::hint::black_box(i);
-            self.IGROUPR[idx].set(u32::MAX);
+            self.write_igroupr(i, u32::MAX);
         }
     }
 
@@ -354,8 +407,7 @@ impl DistributorReg {
 
         // Configure all interrupts as level-sensitive (0x0) by default
         for i in 0..num_regs {
-            let idx = core::hint::black_box(i);
-            self.ICFGR[idx].set(0);
+            self.write_icfgr(i, 0);
         }
     }
 
@@ -516,9 +568,7 @@ impl DistributorReg {
     fn set_all_routing_to_current(&self, max_interrupts: u32) {
         let current = Affinity::current();
         for i in SPI_RANGE.start..max_interrupts {
-            let idx = core::hint::black_box(i);
-            // Set all SPIs to route to current CPU
-            self.set_interrupt_route(idx, Some(current));
+            self.set_interrupt_route(i, Some(current));
         }
     }
 
