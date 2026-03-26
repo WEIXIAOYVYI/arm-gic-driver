@@ -91,20 +91,17 @@ register_structs! {
 
 impl DistributorReg {
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn write32(&self, offset: usize, val: u32) {
-        core::ptr::write_volatile(
-            self.base.add(offset).cast::<u32>(),
-            val,
-        );
+        let base = self as *const _ as *mut u8;
+        let addr = base.add(offset) as *mut u32;
+        core::ptr::write_volatile(addr, val);
     }
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn write8(&self, offset: usize, val: u8) {
-        core::ptr::write_volatile(
-            self.base.add(offset).cast::<u8>(),
-            val as u8,
-        );
+        let base = self as *const _ as *mut u8;
+        core::ptr::write_volatile(base.add(offset), val);
     }
 
     #[inline(always)]
@@ -146,6 +143,13 @@ impl DistributorReg {
     fn write_ipriorityr(&self, n: usize, val: u8) {
         unsafe {
             self.write8(0x400 + n, val);
+        }
+    }
+
+    #[inline(always)]
+    fn write_icfgr(&self, n: usize, val: u32) {
+        unsafe {
+            self.write32(0xc00 + n * 4, val);
         }
     }
 
