@@ -12,6 +12,7 @@ mod gicr;
 
 pub use crate::{IntId, VirtAddr, define::Trigger, sys_reg::*};
 
+use crate::define::nmi_attr_slot;
 use crate::version::{IrqVecReadable, IrqVecWriteable};
 use gicd::*;
 use gicr::*;
@@ -437,7 +438,18 @@ impl Gic {
     }
 
     fn current_rd(&self) -> NonNull<RedistributorV3> {
-        let want = (MPIDR_EL1.get() & 0xFFFFFF) as u32;
+        self.current_rd_opt()
+            .unwrap_or_else(|| panic!("No current redistributor"))
+    }
+
+    /// Locate the redistributor frame owned by the current CPU.
+    ///
+    /// Walks the redistributor region comparing each frame's
+    /// `GICR_TYPER.Affinity` against the current CPU's `MPIDR_EL1` affinity
+    /// (Aff3:Aff2:Aff1:Aff0). Returns `None` when no frame matches, so
+    /// callers can degrade gracefully instead of panicking.
+    fn current_rd_opt(&self) -> Option<NonNull<RedistributorV3>> {
+        let want = Affinity::from_mpidr(MPIDR_EL1.get()).affinity();
 
         for rd in self.rd_slice().iter() {
             let affi = unsafe { rd.as_ref() }
@@ -445,10 +457,99 @@ impl Gic {
                 .TYPER
                 .read(gicr::TYPER::Affinity) as u32;
             if affi == want {
-                return rd;
+                return Some(rd);
             }
         }
-        panic!("No current redistributor")
+        None
+    }
+
+    /// Probe GICv3.1 NMI attribute register support.
+    ///
+    /// GICv3.1 adds the per-interrupt NMI attribute registers (`GICD_INMIRn`
+    /// and `GICR_INMIR0`); on GICv3.0 they are RES0 (RAZ/WI). There is no
+    /// feature bit advertising NMI support, so capability is detected by
+    /// writing and reading back a test bit in each register.
+    ///
+    /// Returns `(GICR_INMIR0 sticks, GICD_INMIR0 sticks)`. The probe writes
+    /// bit 16 (PPI 16) in the first redistributor's `GICR_INMIR0` and bit 0
+    /// (SPI 0) in `GICD_INMIR0`, restoring both original values before
+    /// returning. Call at boot before any interrupt is configured.
+    pub fn probe_nmi_attribute_support(&self) -> (bool, bool) {
+        let gicr_sticks = if let Some(rd) = self.rd_slice().iter().next() {
+            // SAFETY: `rd` points into the mapped GIC redistributor region;
+            // on GICv3.0 the register is RES0 and the write is ignored, on
+            // GICv3.1 it is RW. The original value is restored before
+            // returning.
+            unsafe {
+                let inmir = &rd.as_ref().sgi.INMIR0;
+                let orig = inmir.get();
+                inmir.set(1 << 16);
+                let sticks = inmir.get() & (1 << 16) != 0;
+                inmir.set(orig);
+                sticks
+            }
+        } else {
+            false
+        };
+
+        let inmir = &self.gicd().INMIR[0];
+        let orig = inmir.get();
+        inmir.set(1);
+        let gicd_sticks = inmir.get() & 1 != 0;
+        inmir.set(orig);
+
+        (gicr_sticks, gicd_sticks)
+    }
+
+    /// Set or clear the GICv3.1 NMI attribute for `intid`.
+    ///
+    /// PPIs are programmed in the current CPU's `GICR_INMIR0`; SPIs use
+    /// `GICD_INMIRn`. SGIs and special INTIDs have no NMI attribute.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `intid` is an SGI or a special INTID, or when
+    /// the current CPU's redistributor frame cannot be located (PPIs only).
+    pub fn set_nmi_attr(&self, intid: IntId, nmi: bool) -> Result<(), &'static str> {
+        let (_, bit) = nmi_attr_slot(intid)?;
+        if intid.is_private() {
+            // PPI: the attribute is private to a CPU, so it must be
+            // programmed in the current CPU's redistributor frame.
+            let rd = self
+                .current_rd_opt()
+                .ok_or("current redistributor not found")?;
+            // SAFETY: `rd` is the current CPU's frame inside the mapped
+            // redistributor region; PPIs map to `GICR_INMIR0` (register 0).
+            unsafe {
+                let inmir = &rd.as_ref().sgi.INMIR0;
+                let current = inmir.get();
+                inmir.set(if nmi { current | bit } else { current & !bit });
+            }
+            Ok(())
+        } else {
+            self.gicd().set_nmi(intid.to_u32(), nmi);
+            Ok(())
+        }
+    }
+
+    /// Check whether `intid` has the GICv3.1 NMI attribute set.
+    ///
+    /// Returns `false` for SGIs, special INTIDs, or when the current CPU's
+    /// redistributor frame cannot be located (PPIs only).
+    pub fn is_nmi(&self, intid: IntId) -> bool {
+        let Ok((_, bit)) = nmi_attr_slot(intid) else {
+            return false;
+        };
+        if intid.is_private() {
+            let Some(rd) = self.current_rd_opt() else {
+                return false;
+            };
+            // SAFETY: `rd` is the current CPU's frame inside the mapped
+            // redistributor region; PPIs map to `GICR_INMIR0` (register 0).
+            unsafe { rd.as_ref().sgi.INMIR0.get() & bit != 0 }
+        } else {
+            self.gicd().is_nmi(intid.to_u32())
+        }
     }
 
     /// Get a CPU interface for the current CPU.
