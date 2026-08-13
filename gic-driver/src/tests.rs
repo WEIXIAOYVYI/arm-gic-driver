@@ -43,8 +43,10 @@ fn test_ppi() {
 }
 
 #[test]
-fn nmi_attr_slot_rejects_sgi() {
-    assert!(nmi_attr_slot(IntId::sgi(1)).is_err());
+fn nmi_attr_slot_sgi() {
+    let (reg, bit) = nmi_attr_slot(IntId::sgi(1)).unwrap();
+    assert_eq!(reg, 0);
+    assert_eq!(bit, 1 << 1); // GICR_INMIR0 bit 1
 }
 
 #[test]
